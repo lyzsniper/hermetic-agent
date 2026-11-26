@@ -1,4 +1,4 @@
-﻿"""structlog + Rich 日志配置。
+"""structlog + Rich 日志配置。
 
 设计目标（按设计文档 §10 错误码 + AGENTS.md §6 错误处理约束延伸）：
 
@@ -48,6 +48,14 @@ def _drop_redundant_keys(_: Any, __: str, event_dict: EventDict) -> EventDict:
     * ``logger``: module 名, 重复出现在每行; 调试时按需开
     """
     event_dict.pop("logger", None)
+    return event_dict
+
+
+def _replace_newlines_in_strings(_: Any, __: str, event_dict: EventDict) -> EventDict:
+    """字符串字段里的 ``\n`` 折成 `` | `` 让日志单行输出 (避免 traceback / 长 message 把控制台滚乱)."""
+    for k, v in list(event_dict.items()):
+        if isinstance(v, str) and "\n" in v:
+            event_dict[k] = " | ".join(v.splitlines())
     return event_dict
 
 
@@ -159,6 +167,7 @@ def configure_logging(settings: Settings) -> None:
         structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S.%f", utc=False),
         _add_thread_name,
         structlog.processors.StackInfoRenderer(),
+        _replace_newlines_in_strings,
         structlog.processors.format_exc_info,
         structlog.processors.UnicodeDecoder(),
         _drop_redundant_keys,

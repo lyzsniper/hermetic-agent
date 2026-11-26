@@ -15,7 +15,6 @@ class MinioClient:
         self._access_key = settings.minio_access_key
         self._secret_key = settings.minio_secret_key
         self._secure = bool(settings.minio_secure)
-        self._timeout = float(settings.minio_request_timeout)
         self._client = None
 
     def _ensure(self):
@@ -32,7 +31,6 @@ class MinioClient:
             access_key=self._access_key,
             secret_key=self._secret_key,
             secure=self._secure,
-            timeout=self._timeout,
         )
         return self._client
 

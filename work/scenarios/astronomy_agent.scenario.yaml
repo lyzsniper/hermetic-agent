@@ -1,0 +1,104 @@
+# ============================================================
+# 天文助手场景 — 由 AstroAgent 调用
+# 锁定身份/工具集, 物理计算走对方本地 (sky/neo/papers),
+# 这里只提供 LLM 文字回答 + system prompt 角色.
+# ============================================================
+name: astronomy_agent
+version: "1.0.0"
+description: |
+  面向天文爱好者的智能助手. 由 AstroAgent (Next.js + WebGL2)
+  通过 X-Scenario header 调用. 物理计算 (赤道→地平 / 行星位置 /
+  小行星查询 / arXiv 检索) 在 AstroAgent 侧完成, hermetic-agent
+  只负责文本回答 + 工具调用决策.
+enabled: true
+tags: [external, astronomy, consumer-astroagent]
+owner: external-astroagent
+tier: bronze
+
+routing:
+  trigger_keywords: []
+  trigger_intent: null
+  url_path: null
+  priority: 10
+  # 显式声明: 只接受 header 显式调用, 不参与关键词匹配 (避免误吞
+  # 来自其它 app 的"星空"用户输入). Header route 是 6 优先级中的
+  # 第 2 档, 优先级数字无关匹配顺序.
+
+execution:
+  system_prompt: |
+    你是 AstroAgent 的天文助手, 负责解答用户的提问并按需调用工具.
+
+    工作分工:
+    - 视场计算 / 星图渲染 / DSO 坐标转换 / 行星位置 / 时间换算
+      → 全部在 AstroAgent 前端 / 后端本地完成 (用户已在前端展示).
+    - 近地小行星 (NEO) / arXiv 论文检索 → AstroAgent 后端有专用 endpoint.
+    - 你只负责"自然语言理解 + 决策 + 文字回答".
+
+    回答原则:
+    - 中文优先, 单位用 SI (天体物理量注明单位).
+    - 涉及具体星体/天体时, 给名称 (中英文) + 简短属性.
+    - 引用数据时给出数据源 (HYG 库 / NASA NeoWs / arXiv).
+    - 不编造未经核实的数据; 不确定时明确说"数据未涵盖".
+  skills: []
+  tools: []
+  orchestration: single
+
+security:
+  tool_level: safe
+  allowed_tools: [Read, Grep, Glob]
+  denied_tools: [Write, Edit, Bash, WebFetch, WebSearch]
+  allowed_commands: []
+  denied_commands: [rm -rf, sudo, dd, mkfs, "chmod 777"]
+  network: off
+  max_turns: 5
+  max_budget_usd: 0.2
+  require_approval_for_writes: true
+
+workspace:
+  strategy: project_relative
+  workspace_dirs:
+    - ${PROJECT_DIR}
+  readonly_dirs:
+    - ${WORK_SHARED}/docs/astronomy
+  deny_dirs:
+    - /etc
+    - ~/.ssh
+    - ~/.aws
+  deny_path_patterns:
+    - "**/.env"
+    - "**/.env.*"
+    - "**/secrets/**"
+  launcher:
+    prefer_engine: claude_code
+    fallback_engine: opencode
+
+a2ui:
+  enabled: false
+  protocol: auip
+
+progressive_skill:
+  strategy: none
+  budget_tokens: 500
+  budget_policy: error
+  initial_skills: []
+  load_on_state: {}
+
+resource_dirs:
+  prompts: ${WORK_SHARED}/prompts/_generic
+  skills: ${WORK_SHARED}/skills/_generic
+  mcp_servers: ${WORK_SHARED}/mcp/_generic
+  tools: ${WORK_SHARED}/tools/_generic
+  cards: ${WORK_SHARED}/cards/_generic
+
+resources:
+  agent: null
+  model: MiniMax-M2.7-highspeed
+  timeout: 60
+
+metadata:
+  cost_center: EXT-ASTRO
+  ab_group: control
+  sla_tier: bronze
+  is_fallback: false
+  dashboard_url: null
+  external_consumer: astroagent

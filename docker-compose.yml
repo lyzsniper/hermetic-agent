@@ -1,6 +1,6 @@
 ﻿# hermetic-agent 容器化部署 (Phase 1) — 统一 compose
 #
-# 4 个 service:
+# 3 个 service (+ 1 profile):
 #   - nacos               (Nacos v3.2.2, 配置中心 + AI 注册表)  :28848/:28080/:29848
 #   - hermetic-agent        (Sanic, L1-L3)                        :28000→8000
 #   - opencode-1           (sandbox,  L4)                        :24096/:27778 (调试用)
@@ -73,25 +73,6 @@ services:
       retries: 5
 
   # ============================================================
-  # 0b. minio-init — one-shot sidecar, creates bucket
-  # ============================================================
-  minio-init:
-    image: minio/mc:latest
-    container_name: hermetic-agent-minio-init
-    pull_policy: ${PULL_POLICY:-missing}
-    networks: [sandbox-net]
-    depends_on:
-      minio:
-        condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-hermetic-agent-minio} ${MINIO_ROOT_PASSWORD:-minio-secret-dev} &&
-      mc mb -p local/${MINIO_BUCKET_SKILLS:-hermetic-agent-skills} || true &&
-      echo 'minio-init done'
-      "
-    restart: "no"
-
-  # ============================================================
   # 0. Nacos v3.2.2 (配置中心 + AI 注册表: MCP/Agent/Skill/Prompt)
   # ============================================================
   nacos:
@@ -125,6 +106,7 @@ services:
   # ============================================================
   hermetic-agent:
     image: ${HERMETIC_AGENT_IMAGE:-hermetic-agent:dev}
+    container_name: hermetic-agent-hermetic-agent
     build:
       context: .
       dockerfile: docker/hermetic-agent/Dockerfile
@@ -133,6 +115,7 @@ services:
     env_file:
       - path: .env
         required: false
+    command: ["/app/scripts/ensure_bucket.sh"]
     ports:
       - "28000:8000"
     environment:
@@ -152,24 +135,24 @@ services:
       - NACOS_SERVER_ADDR=nacos:8848
       - NACOS_NAMESPACE=6375a990-9df8-4783-a7fe-fb3a3effba93
       - NACOS_ENABLED=${NACOS_ENABLED:-true}
-      - AGENT_SCHEDULER_MINIO_ENDPOINT=minio:9000
-      - AGENT_SCHEDULER_MINIO_SECURE=false
-      - AGENT_SCHEDULER_MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-hermetic-agent-minio}
-      - AGENT_SCHEDULER_MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minio-secret-dev}
-      - AGENT_SCHEDULER_MINIO_BUCKET_SKILLS=${MINIO_BUCKET_SKILLS:-hermetic-agent-skills}
-      - AGENT_SCHEDULER_ASSET_BACKEND=minio
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_SECURE=false
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-hermetic-agent-minio}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minio-secret-dev}
+      - MINIO_BUCKET_SKILLS=${MINIO_BUCKET_SKILLS:-hermetic-agent-skills}
+      - ASSET_BACKEND=minio
     depends_on:
       nacos:
         condition: service_healthy
       opencode-1:
         condition: service_healthy
-      minio-init:
-        condition: service_completed_successfully
+      minio:
+        condition: service_healthy
       mysql:
         condition: service_healthy
     networks: [sandbox-net]
-    volumes:
-      - ./work:/app/work:ro
+    # volumes:
+    #   - ./work:/app/work:ro
     # 开发模式 (取消注释):
     # volumes:
     #   - ./:/app
@@ -180,6 +163,7 @@ services:
   # ============================================================
   opencode-1:
     image: ${OPENCODE_SANDBOX_IMAGE:-opencode-sandbox:dev}
+    container_name: hermetic-agent-opencode
     build:
       context: .
       dockerfile: docker/opencode/Dockerfile
@@ -305,7 +289,7 @@ services:
       - --collation-server=utf8mb4_0900_ai_ci
       - --default-authentication-plugin=caching_sha2_password
     ports:
-      - "${MYSQL_PORT:-13306}:3306"
+      - "${MYSQL_PORT:-23306}:3306"
     volumes:
       - mysql-data:/var/lib/mysql
     networks: [sandbox-net]

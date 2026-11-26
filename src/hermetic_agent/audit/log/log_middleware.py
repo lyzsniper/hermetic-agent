@@ -125,5 +125,18 @@ class LogMiddleware:
             error_message=err_msg,
         )
         if self._tokens is not None:
-            clear_request_context(self._tokens)
+            # Sanic 25 response 中间件和 request 中间件运行在不同的 asyncio
+            # context 里, ContextVar.Token 在跨 context reset 时会抛
+            # "was created in a different Context". 这里是清理步骤, 不能
+            # 因为它让整个响应链路挂掉. 吞掉 ValueError + 防重入.
+            try:
+                clear_request_context(self._tokens)
+            except (ValueError, RuntimeError) as e:
+                # 仅 debug 记一下 — token 失效是 Sanic 行为, 不是 bug
+                import structlog
+
+                structlog.get_logger(__name__).debug(
+                    "log_context_clear_skipped",
+                    error=f"{type(e).__name__}: {e}",
+                )
             self._tokens = None

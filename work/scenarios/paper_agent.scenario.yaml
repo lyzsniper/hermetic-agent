@@ -1,0 +1,106 @@
+# ============================================================
+# 论文助手场景 — 由 charming-reader 调用
+# 锁定身份/工具集; RAG 检索留在 charming-reader 侧,
+# 这里只提供 LLM 文字回答.
+# ============================================================
+name: paper_agent
+version: "1.0.0"
+description: |
+  面向学术研究者的论文阅读助手. 由 charming-reader (FastAPI +
+  pgvector + Elasticsearch + MinIO + Skills) 通过 X-Scenario header 调用.
+  RAG 检索 (向量召回 + BM25 + 重排 + 引用标注) 全部在
+  charming-reader 侧完成; charm-component 只负责把 prompt + 上下文
+  传给 hermetic-agent, 这里拿到文字回答.
+enabled: true
+tags: [external, paper, consumer-charming-reader]
+owner: external-charming-reader
+tier: bronze
+
+routing:
+  trigger_keywords: []
+  trigger_intent: null
+  url_path: null
+  priority: 10
+  # 显式声明: 只接受 header 显式调用, 不参与关键词匹配 (避免误吞
+  # 来自其它 app 的"论文"用户输入).
+
+execution:
+  system_prompt: |
+    你是 CharMing Reader 的论文阅读助手, 协助用户阅读、总结、解释学术论文.
+
+    工作分工:
+    - RAG 检索 (向量 + BM25 混合召回 + 重排 + 引用标注)
+      → 全部在 charming-reader 后端完成. 你拿到的 user message
+        已经包含 [片段 1]...[片段 N] 的检索上下文 + 强制"基于以上内容回答"指令.
+    - PDF 解析 / 知识库管理 / 文献综述模板
+      → 全部在 charming-reader 完成.
+    - 你只负责: 阅读 caller 组装好的 prompt → 生成专业、有引用意识的回答.
+
+    回答原则:
+    - 中文优先. 涉及公式 / 算法时给出 LaTeX 表示.
+    - 任何结论必须能在 caller 提供的"[片段 N]"中追溯出处.
+    - 不超出检索片段做事实性陈述, 必要时说"片段未涵盖".
+    - 引用角标格式: "...结论 [1]" (与 caller 传回的 sources 编号对齐).
+  skills: []
+  tools: []
+  orchestration: single
+
+security:
+  tool_level: safe
+  allowed_tools: [Read, Grep, Glob]
+  denied_tools: [Write, Edit, Bash, WebFetch, WebSearch]
+  allowed_commands: []
+  denied_commands: [rm -rf, sudo, dd, mkfs, "chmod 777"]
+  network: off
+  max_turns: 5
+  max_budget_usd: 0.3
+  require_approval_for_writes: true
+
+workspace:
+  strategy: project_relative
+  workspace_dirs:
+    - ${PROJECT_DIR}
+  readonly_dirs:
+    - ${WORK_SHARED}/docs/papers
+  deny_dirs:
+    - /etc
+    - ~/.ssh
+    - ~/.aws
+  deny_path_patterns:
+    - "**/.env"
+    - "**/.env.*"
+    - "**/secrets/**"
+  launcher:
+    prefer_engine: claude_code
+    fallback_engine: opencode
+
+a2ui:
+  enabled: false
+  protocol: auip
+
+progressive_skill:
+  strategy: none
+  budget_tokens: 800
+  budget_policy: error
+  initial_skills: []
+  load_on_state: {}
+
+resource_dirs:
+  prompts: ${WORK_SHARED}/prompts/_generic
+  skills: ${WORK_SHARED}/skills/_generic
+  mcp_servers: ${WORK_SHARED}/mcp/_generic
+  tools: ${WORK_SHARED}/tools/_generic
+  cards: ${WORK_SHARED}/cards/_generic
+
+resources:
+  agent: null
+  model: MiniMax-M2.7-highspeed
+  timeout: 90
+
+metadata:
+  cost_center: EXT-PAPER
+  ab_group: control
+  sla_tier: bronze
+  is_fallback: false
+  dashboard_url: null
+  external_consumer: charming-reader

@@ -102,7 +102,7 @@ async def init_tortoise(
     """初始化 Tortoise + (可选) 建表.
 
     Args:
-        db_url: 数据库 DSN. 形如 ``mysql://user:pass@host:port/db`` 或
+        db_url: 数据库 DSN. 形如 ``mysql://user:pass@host:db`` 或
             ``sqlite://:memory:`` (测试用).
         generate_schemas: True 时自动建表 (开发 / 容器部署); False 时
             跳过 (生产用 Alembic 迁移时).
@@ -112,9 +112,19 @@ async def init_tortoise(
     Raises:
         ConfigurationError: db_url 格式错 / 模块路径找不到 model.
     """
-    if echo:
-        import logging
-        logging.getLogger("tortoise.db_client").setLevel(logging.DEBUG)
+    import logging
+
+    # Tortoise 1.x 内部会注册自己的 logger 到 NOTSET, 继承 root 的 level.
+    # 这意味着即使 echo=False, root level=DEBUG 时也会泄露 SQL echo. 强制把
+    # tortoise.db_client (SQL 执行) + asyncmy (底层 driver) + tortoise
+    # (model events) 三个 logger 都压到 WARNING, 除非调用方明确 echo=True.
+    for name in ("tortoise", "tortoise.db_client", "asyncmy"):
+        log = logging.getLogger(name)
+        log.setLevel(logging.DEBUG if echo else logging.WARNING)
+        # 禁止 propagate=False, 防止父级 root 把 DEBUG 传过来
+        # (依然透传给 root, 但 root 的 handler 不会显示 WARNING 以下)
+        log.propagate = True
+
     await Tortoise.init(
         db_url=db_url,
         modules={"models": MODULES_PATH},

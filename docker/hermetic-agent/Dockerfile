@@ -47,6 +47,8 @@ FROM deps AS runtime
 
 # 装我们自己的项目 (整个 src/) — --no-deps 跳过依赖解析 (deps 阶段已装), 几秒
 COPY src/ /app/src/
+COPY docker/hermetic-agent/scripts/ensure_bucket.sh /app/scripts/ensure_bucket.sh
+RUN chmod +x /app/scripts/ensure_bucket.sh
 # 同样用 cache mount 加速 (虽然 --no-deps 不下载, 但 setuptools build 自己的 wheel 会用 pip cache)
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --no-cache-dir --no-deps .

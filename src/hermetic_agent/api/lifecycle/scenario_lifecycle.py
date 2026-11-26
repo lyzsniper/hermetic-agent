@@ -2,6 +2,10 @@
 
 被 ``lifecycle.startup`` 调用 (在 ``_startup`` 钩子末尾), 不重建 storage / bridge.
 失败时记录错误但不抛 — 允许 chat_controller 在 scenario 未就绪时仍可工作.
+
+加载顺序 (后面的覆盖前面的):
+1. 文件系统 *.scenario.yaml (scenario_paths / work_root/scenarios)
+2. MySQL scenarios 表 (status='enabled') — 覆盖同名 YAML
 """
 
 from __future__ import annotations
@@ -90,15 +94,26 @@ async def init_scenarios(app: Sanic, settings: Any) -> None:
             if pp.exists():
                 resolved_paths.append(str(pp))
             else:
-                logger.warning(
+                # DB-only 模式下 (docker-compose 注释掉 ./work 挂载) 正常; 不打 warning
+                logger.debug(
                     "scenario_path_missing",
                     path=str(pp),
-                    hint="检查 settings.scenario_paths / 挂载 volume",
+                    hint="filesystem 路径不存在; 全靠 MySQL scenarios 表加载",
                 )
 
-        # 加载 (registry.load_from_paths 内部 rglob *.scenario.yaml)
+        # 1. 加载文件系统 YAML (registry.load_from_paths 内部 rglob *.scenario.yaml)
         if resolved_paths:
             registry.load_from_paths(*resolved_paths)
+
+        # 2. 从 MySQL scenarios 表加载 — 覆盖同名 YAML 场景.
+        #    存储层已在 lifecycle.startup 阶段 connect() (早于此函数),
+        #    这里直接 async query.
+        try:
+            from hermetic_agent.scenarios.db_lifecycle import load_active_scenarios_from_db
+            db_loaded = await load_active_scenarios_from_db(registry, app)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("scenario_db_load_failed", error=str(e))
+            db_loaded = 0
 
         # default_scenario 存在性校验: 启动时显式提示, 避免运行期才发现
         default_name = getattr(settings, "default_scenario", "_default")
@@ -132,7 +147,8 @@ async def init_scenarios(app: Sanic, settings: Any) -> None:
             "scenarios_initialized",
             total=len(registry.list_all()),
             enabled=len(registry.list_enabled()),
-            paths=resolved_paths,
+            fs_loaded_from=resolved_paths,
+            db_loaded=db_loaded,
             default=default_name,
         )
     except Exception as e:
