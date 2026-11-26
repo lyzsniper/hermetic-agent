@@ -94,7 +94,8 @@ resource_dirs:
 
 resources:
   agent: null
-  model: MiniMax-M2.7-highspeed
+  # provider/model 都要写全: 网关按 "/" 拆出 providerID; 不带前缀会被兜底归到 openai, 引擎查不到
+  model: longcat/LongCat-2.0
   timeout: 90
 
 metadata:
